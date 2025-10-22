@@ -7,6 +7,11 @@ arch:
 startup: services
 boot: auto
 init: false
+map:
+  - config:rw
+  - ssl:ro
+services:
+  - mqtt:need
 
 options:
   mqtt_host: core-mosquitto
@@ -18,7 +23,13 @@ options:
   supla_prefix: "supla"
   discovery_prefix: "homeassistant"
   name_prefix: "Supla"
-  include_devices: []
+  qos: 0
+  retain: true
+  include_devices:
+    - 2995
+    - 6912
+    - 6913
+    - 7389
   exclude_devices: []
   publish_interval: 0
 
@@ -32,8 +43,10 @@ schema:
   supla_prefix: str
   discovery_prefix: str
   name_prefix: str
+  qos: int?
+  retain: bool?
   include_devices:
-    - int
+    - int?
   exclude_devices:
-    - int
-  publish_interval: int
+    - int?
+  publish_interval: int?
