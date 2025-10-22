@@ -2,6 +2,239 @@
 # -*- coding: utf-8 -*-
 
 # SUPLA → Home Assistant MQTT Discovery
+# 1.2.0-alpha — LWT/availability + cleanup starych retained + republish
+
+import json, os, re, time, threading
+from datetime import datetime
+import paho.mqtt.client as mqtt
+
+def log(*args): print(datetime.now().strftime("[%Y-%m-%d %H:%M:%S]"), *args, flush=True)
+
+OPTS_PATH = "/data/options.json"
+PUBLISHED_PATH = "/data/published.json"
+
+def _load_options():
+    with open(OPTS_PATH, "r") as f: o = json.load(f)
+    o.setdefault("mqtt_host", "core-mosquitto")
+    o.setdefault("mqtt_port", 1883)
+    o.setdefault("mqtt_username", ""); o.setdefault("mqtt_password", "")
+    o.setdefault("tls", False); o.setdefault("ca_certs", "")
+    o.setdefault("supla_prefix", "supla")
+    o.setdefault("discovery_prefix", "homeassistant")
+    o.setdefault("name_prefix", "Supla")
+    o.setdefault("qos", 0); o.setdefault("retain", True)
+    o.setdefault("include_devices", []); o.setdefault("exclude_devices", [])
+    o.setdefault("publish_interval", 0)         # min; 0 = off
+    o.setdefault("availability_topic", "supla-autodiscovery/availability")
+    o.setdefault("cleanup_delay", 8)            # sekundy do aktywnego cleanupu
+    return o
+
+OPTS = _load_options()
+
+UNIT_MAP = {
+    "voltage": ("V", "voltage", "measurement"),
+    "current": ("A", "current", "measurement"),
+    "power_active": ("W", "power", "measurement"),
+    "power_apparent": ("VA", None, "measurement"),
+    "power_reactive": ("var", None, "measurement"),
+    "frequency": ("Hz", None, "measurement"),
+    "power_factor": (None, "power_factor", "measurement"),
+    "phase_angle": ("°", None, "measurement"),
+    "total_forward_active_energy": ("kWh", "energy", "total_increasing"),
+    "total_reverse_active_energy": ("kWh", "energy", "total_increasing"),
+    "total_forward_reactive_energy": ("kvarh", None, "total_increasing"),
+    "total_reverse_reactive_energy": ("kvarh", None, "total_increasing"),
+    "temperature": ("°C", "temperature", "measurement"),
+    "humidity": ("%", "humidity", "measurement"),
+    "value": (None, None, "measurement"),
+    "on": (None, None, "measurement"),
+    "connected": (None, None, "measurement"),
+    "price_per_unit": (None, None, None),
+    "total_cost": (None, None, None),
+    "cost_balanced": (None, None, None),
+    "currency": (None, None, None),
+    "support": (None, None, None),
+}
+
+TOPIC_RE = re.compile(
+    r"^" + re.escape(OPTS["supla_prefix"])
+    + r"/([^/]+)/devices/(\d+)/channels/(\d+)/state(?:/phases/(\d+))?/([^/]+)$"
+)
+STATE_DEV_RE = re.compile(r"/devices/(\d+)/channels/")  # do wyciągania DEV z payloadu
+
+published_uids = set()
+CURRENT = {}
+try:
+    with open(PUBLISHED_PATH, "r") as _f: PREV = json.load(_f)
+except Exception:
+    PREV = {}
+
+log(f"[FILTER] include={sorted(OPTS.get('include_devices', []))} exclude={sorted(OPTS.get('exclude_devices', []))}")
+log(f"[LWT] topic={OPTS['availability_topic']} qos={OPTS['qos']} retain={OPTS['retain']}")
+
+def _allowed(dev_int: int) -> bool:
+    inc = OPTS.get("include_devices", []) or []
+    exc = OPTS.get("exclude_devices", []) or []
+    if inc and dev_int not in inc: return False
+    if dev_int in exc: return False
+    return True
+
+def build_sensor(state_topic, token, dev, ch, phase, metric):
+    key = metric
+    uid = f"supla_{dev}_{ch}_{('p'+phase) if phase else 'p0'}_{key}"
+    if uid in published_uids: return None, None, None
+
+    name_bits = [OPTS["name_prefix"], f"{dev}/{ch}"]
+    if phase: name_bits.append(f"F{phase}")
+    name_bits.append(key.replace("_", " ").title())
+    name = " ".join(name_bits)
+
+    unit, device_class, state_class = UNIT_MAP.get(key, (None, None, "measurement"))
+    cfg = {
+        "name": name, "unique_id": uid,
+        "state_topic": state_topic,
+        "qos": int(OPTS["qos"]), "retain": bool(OPTS["retain"]),
+        "availability_topic": OPTS["availability_topic"],
+        "payload_available": "online", "payload_not_available": "offline",
+        "availability_mode": "latest",
+        "device": {
+            "identifiers": [f"supla_{dev}"],
+            "manufacturer": "SUPLA / ZAMEL",
+            "model": f"Device {dev} / Channel {ch}",
+            "name": f"{OPTS['name_prefix']} {dev}",
+        },
+    }
+    if unit is not None: cfg["unit_of_measurement"] = unit
+    if device_class is not None: cfg["device_class"] = device_class
+    if state_class is not None: cfg["state_class"] = state_class
+
+    disc = f"{OPTS['discovery_prefix']}/sensor/{uid}/config"
+    return uid, disc, json.dumps(cfg, ensure_ascii=False)
+
+def on_connect(client, userdata, flags, rc, properties=None):
+    log(f"[MQTT] connected rc={rc}")
+    client.publish(OPTS["availability_topic"], "online", qos=int(OPTS["qos"]), retain=True)
+    client.subscribe(OPTS["supla_prefix"] + "/#")
+
+def on_message(client, userdata, msg):
+    m = TOPIC_RE.match(msg.topic)
+    if not m: return
+    token, dev, ch, phase, metric = m.groups()
+    dev_int = int(dev)
+    if not _allowed(dev_int): return
+
+    uid, disc, payload = build_sensor(msg.topic, token, dev, ch, phase, metric)
+    if not uid: return
+    client.publish(disc, payload, retain=True, qos=int(OPTS["qos"]))
+    published_uids.add(uid)
+    CURRENT[uid] = {"disc": disc, "payload": payload}
+
+    try: pretty = json.loads(payload).get("name", uid)
+    except Exception: pretty = uid
+    log(f"=> discovery: {disc} ({pretty})")
+
+def _save_snapshot():
+    try:
+        with open(PUBLISHED_PATH, "w") as f: json.dump(CURRENT, f)
+    except Exception as e:
+        log("[WARN] save published.json failed:", e)
+
+def _cleanup_prev_snapshot(client):
+    old = set(PREV.keys()); new = set(CURRENT.keys())
+    to_del = sorted(list(old - new))
+    if to_del:
+        log(f"[CLEANUP(prev)] removing {len(to_del)} stale entities…")
+        for uid in to_del:
+            disc = PREV.get(uid, {}).get("disc")
+            if disc: client.publish(disc, "", retain=True, qos=int(OPTS["qos"]))
+        log("[CLEANUP(prev)] done")
+
+def _active_broker_cleanup(client):
+    """Zbiera RETAINED discovery z brokera i usuwa te, które nie należą
+       do include_devices / albo są w exclude_devices."""
+    delay = max(2, int(OPTS.get("cleanup_delay", 8)))
+    time.sleep(delay)
+
+    # pomocniczy klient tylko do pobrania retained
+    bc = mqtt.Client(client_id="supla-autodiscovery-clean")
+    if OPTS.get("mqtt_username") or OPTS.get("mqtt_password"):
+        bc.username_pw_set(OPTS.get("mqtt_username", ""), OPTS.get("mqtt_password", ""))
+    if OPTS.get("tls"):
+        ca = OPTS.get("ca_certs") or None
+        bc.tls_set(ca_certs=ca)
+
+    found_topics = set()
+
+    def _on_m(_c, _u, m):
+        # spodziewamy się retained, payload = JSON config
+        try:
+            cfg = json.loads(m.payload.decode("utf-8", "ignore"))
+        except Exception:
+            return
+        st = str(cfg.get("state_topic", ""))
+        mm = STATE_DEV_RE.search(st)
+        if not mm: return
+        dev_int = int(mm.group(1))
+        if not _allowed(dev_int):
+            found_topics.add(m.topic)
+
+    bc.on_message = _on_m
+    bc.connect(OPTS["mqtt_host"], int(OPTS["mqtt_port"]), keepalive=30)
+    bc.subscribe(f"{OPTS['discovery_prefix']}/sensor/+/config")
+    # daj chwilę na dostarczenie wszystkich retained
+    time.sleep(3)
+    bc.loop(timeout=0.1)
+    bc.disconnect()
+
+    if found_topics:
+        log(f"[CLEANUP(active)] removing {len(found_topics)} retained configs not in include…")
+        for t in sorted(found_topics):
+            client.publish(t, "", retain=True, qos=int(OPTS["qos"]))
+        log("[CLEANUP(active)] done")
+
+    _save_snapshot()
+
+def _republish_worker(client):
+    interval_min = int(OPTS.get("publish_interval", 0))
+    if interval_min <= 0: return
+    while True:
+        time.sleep(interval_min * 60)
+        items = list(CURRENT.items())
+        if not items: continue
+        log(f"[REPUBLISH] pushing {len(items)} discovery configs…")
+        for uid, meta in items:
+            client.publish(meta["disc"], meta["payload"], retain=True, qos=int(OPTS["qos"]))
+        _save_snapshot()
+
+def main():
+    log("[supla-autodiscovery] starting…")
+
+    cbv = getattr(mqtt, "CallbackAPIVersion", None)
+    client = mqtt.Client(client_id="supla-autodiscovery", callback_api_version=cbv.V2) if cbv else mqtt.Client(client_id="supla-autodiscovery")
+    client.will_set(OPTS["availability_topic"], "offline", qos=int(OPTS["qos"]), retain=True)
+
+    if OPTS.get("mqtt_username") or OPTS.get("mqtt_password"):
+        client.username_pw_set(OPTS.get("mqtt_username", ""), OPTS.get("mqtt_password", ""))
+    if OPTS.get("tls"):
+        ca = OPTS.get("ca_certs") or None
+        client.tls_set(ca_certs=ca)
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(OPTS["mqtt_host"], int(OPTS["mqtt_port"]), keepalive=60)
+
+    # sprzątanie
+    threading.Thread(target=_active_broker_cleanup, args=(client,), daemon=True).start()
+    threading.Thread(target=_republish_worker, args=(client,), daemon=True).start()
+
+    client.loop_forever()
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# SUPLA → Home Assistant MQTT Discovery
 # 1.1.x — LWT/availability + cleanup starych encji + republish
 
 import json
