@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 (2025-10-22)
+- Availability: HA pokaże status „niedostępny”, jeśli dodatek padnie albo straci MQTT.
+- Cleanup: porządek w encjach; nie zostają „duchy” po zmianach filtrów/ID.
+- Republish: po restarcie HA nie musisz czekać na dane — discovery jest odświeżane cyklicznie (jeśli ustawisz publish_interval > 0).
+
 ## 1.1.0-alpha (2025-10-22)
 - Repozytorium publiczne (`marcinh-boop/ha-addons`) i poprawna „Lista zmian” w sklepie HA.
 - Kompatybilność z `paho-mqtt` **1.x/2.x**:
