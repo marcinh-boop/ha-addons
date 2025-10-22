@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # SUPLA → Home Assistant MQTT Discovery
-# 1.2.0-alpha — LWT/availability + cleanup starych retained + republish
+# 1.1.1-alpha — LWT/availability + cleanup starych retained + republish
 
 import json, os, re, time, threading
 from datetime import datetime
