@@ -1,2 +1,0 @@
-#!/usr/bin/with-contenv bash
-exec /usr/bin/python3 /opt/supla/supla_autodiscovery.py
