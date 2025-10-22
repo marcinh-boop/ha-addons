@@ -1,5 +1,5 @@
 name: Supla MQTT Autodiscovery
-version: "1.1.0-alpha"
+version: "1.1.1"
 slug: supla_autodiscovery
 description: "Automatyczne generowanie autodiscovery dla danych Supla MQTT"
 arch:
@@ -32,6 +32,8 @@ options:
     - 7389
   exclude_devices: []
   publish_interval: 0
+  availability_topic: "supla-autodiscovery/availability"
+  cleanup_delay: 45
 
 schema:
   mqtt_host: str
@@ -50,3 +52,7 @@ schema:
   exclude_devices:
     - int?
   publish_interval: int?
+  availability_topic: str?
+  cleanup_delay: int?
+
+
