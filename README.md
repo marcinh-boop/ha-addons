@@ -47,8 +47,8 @@ Integracja wykorzystuje mechanizm **MQTT Discovery** (prefiks `homeassistant/`) 
 ```yaml
 mqtt_host: core-mosquitto     # Adres brokera MQTT
 mqtt_port: 1883               # Port (1883 lub 8883 dla TLS)
-mqtt_username: marhoi         # Użytkownik MQTT
-mqtt_password: 3151           # Hasło MQTT
+mqtt_username: user         # Użytkownik MQTT
+mqtt_password: pass           # Hasło MQTT
 tls: false                    # Czy używać TLS (true/false)
 ca_certs: ""                  # Ścieżka do certyfikatów (opcjonalnie)
 supla_prefix: "supla"         # Prefiks danych SUPLA
