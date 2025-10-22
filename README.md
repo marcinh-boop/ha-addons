@@ -31,3 +31,29 @@ Integracja wykorzystuje mechanizm **MQTT Discovery** (prefiks `homeassistant/`) 
 ## 🏗️ Instalacja
 
 1. **Dodaj repozytorium** do Home Assistant:
+
+2. Przejdź do:  
+**Ustawienia → Dodatki → Sklep z dodatkami → Repozytoria → Dodaj URL**
+
+3. Po dodaniu znajdziesz dodatek:  
+**"Supla MQTT Autodiscovery"**
+
+4. Zainstaluj dodatek, a następnie przejdź do **Konfiguracji** i uzupełnij dane:
+
+---
+
+## ⚙️ Konfiguracja (`config.yaml`)
+
+```yaml
+mqtt_host: core-mosquitto     # Adres brokera MQTT
+mqtt_port: 1883               # Port (1883 lub 8883 dla TLS)
+mqtt_username: marhoi         # Użytkownik MQTT
+mqtt_password: 3151           # Hasło MQTT
+tls: false                    # Czy używać TLS (true/false)
+ca_certs: ""                  # Ścieżka do certyfikatów (opcjonalnie)
+supla_prefix: "supla"         # Prefiks danych SUPLA
+discovery_prefix: "homeassistant"  # Prefiks autodiscovery
+name_prefix: "Supla"          # Prefiks nazw urządzeń w HA
+include_devices: []           # Lista ID urządzeń do uwzględnienia (opcjonalnie)
+exclude_devices: []           # Lista ID urządzeń do pominięcia (opcjonalnie)
+publish_interval: 0           # Interwał publikacji autodiscovery (0 = jednorazowo)
