@@ -30,7 +30,7 @@ Integracja wykorzystuje mechanizm **MQTT Discovery** (prefiks `homeassistant/`) 
 
 ## 🏗️ Instalacja
 
-1. **Dodaj repozytorium** do Home Assistant:
+1. **Dodaj repozytorium** do Home Assistant: https://github.com/marcinh-boop/ha-addons.git
 
 2. Przejdź do:  
 **Ustawienia → Dodatki → Sklep z dodatkami → Repozytoria → Dodaj URL**
