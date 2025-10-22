@@ -3,6 +3,7 @@
 **Autor:** MarHoi 
 
 **Wersja:** xxx
+
 **Platforma:** Home Assistant (Supervisor / Add-on)  
 **Architektura:** aarch64  
 
